@@ -62,7 +62,7 @@ def process_links(generated_link):
 		for index, position in enumerate(re.finditer("=", link)):
 			if index == 2:
 				equals_index = position.start()
-				row.append(link[equals_index + 1:equals_index + 6])
+				row.append(link[equals_index + 1:equals_index + 7])
 
 		# Getting the municipality name.
 
