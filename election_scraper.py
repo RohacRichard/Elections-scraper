@@ -1,6 +1,5 @@
 import requests
 from bs4 import BeautifulSoup as BS
-import re
 import os
 import csv
 
@@ -13,32 +12,63 @@ def greeting():
 	print("="*46)
 
 
-def generate_links(base_link):
+def generate_links(td_header, soup):
 	"""Generates links with the results of municipalities to iterate over.
-	Takes the base link from user input as argument"""
+	Takes the headers and generated soup as arguments."""
 
 	generated_links = []
 
-	request = requests.get(base_link)
-	soup = BS(request.text, "html.parser")
+	for td in soup.find_all("td", {"class":"cislo", "headers":td_header}):
+		new_link = "https://volby.cz/pls/ps2017nss/{}".format(td.find("a")["href"])
 
-	table_ID = ["t1", "t2", "t3"]
-
-	for table in table_ID:
-		td_header = ("{0}sa1 {0}sb1".format(table))
-
-		for td in soup.find_all("td", {"class":"cislo", "headers":td_header}):
-
-			for a in td.contents:
-				new_link = "https://volby.cz/pls/ps2017nss/{}".format(a["href"])
-
-				# A check whether there is a same URL already in list.
-				if new_link not in generated_links:
-					generated_links.append(new_link)
-				else:
-					continue
+		# A check whether there is a same URL already in list.
+		if new_link not in generated_links: 
+			generated_links.append(new_link)
 
 	return generated_links
+
+
+def get_code(td_header, soup):
+	"""Gets the code of municipality.
+	Takes the headers and generated soup as arguments."""
+
+	generated_codes = []
+
+	for td in soup.find_all("td", {"class":"cislo", "headers":td_header}):
+		muni_code = (td.find("a").contents)[0]
+
+		# A check whether there is a same code already in list.
+		if muni_code not in generated_codes: 
+			generated_codes.append(muni_code)
+
+	return generated_codes
+
+
+def get_name(soup):
+	"""Gets the municipality name, takes soup as argument."""
+
+	td_header = ["t1sa1 t1sb2", "t2sa1 t2sb2", "t3sa1 t3sb2"]
+
+	generated_names = [td.contents[0] for td 
+					   in soup.find_all("td", {"headers":td_header})]
+
+	return generated_names
+
+
+def base_link_ops(base_link):
+	"""A function to contain all operations regarding user-provided link.
+	Takes the base link as argument."""
+
+	response = requests.get(base_link)
+	soup = BS(response.text, "html.parser")
+
+	td_header = ["t1sa1 t1sb1", "t2sa1 t2sb1", "t3sa1 t3sb1"]
+
+	links = generate_links(td_header, soup)
+	codes = get_code(td_header, soup)
+	names = get_name(soup)
+
+	return links, codes, names
 
 
 def create_header(soup):
@@ -46,36 +76,14 @@ def create_header(soup):
 
 	# Defined header, to which we will append polit. parties.
 	header = ["Code", "Location", "Registered", "Envelopes", "Valid"]
+	td_header = ["t1sa1 t1sb2", "t2sa1 t2sb2"]
 
 	# The empty class attribute fixes problem with empty table row.
-	party_name_1 = soup.find_all("td", {"class":"", "headers":"t1sa1 t1sb2"})
-	for name_1 in party_name_1:
-		header.append(name_1.contents[0])
+	party_name = soup.find_all("td", {"class":"", "headers":td_header})
 
-	party_name_2 = soup.find_all("td", {"class":"", "headers":"t2sa1 t2sb2"})
-	for name_2 in party_name_2:
-		header.append(name_2.contents[0])	
+	party_name_list = [name.contents[0] for name in party_name]	
 
-	return header
-
-
-def get_code(link):
-	"""Gets the code of municipality from URL, takes gen. link as argument."""
-
-	# Had to help myself here a bit with RegEx module.
-	for index, position in enumerate(re.finditer("=", link)):
-		if index == 2:
-			equals_index = position.start()
-			return link[equals_index + 1:equals_index + 7]
-
-
-def get_name(soup):
-	"""Gets the municipality name, takes soup as argument."""
-
-	location_div = soup.find_all("div", {"id":"publikace", "class":"topline"})
-	location_h3 = location_div[0].find_all("h3")
-	location = ((location_h3[2].contents))[0].strip()
-	return location[6:]
+	return header + party_name_list
 
 
 def get_voter_info(soup):
@@ -98,36 +106,30 @@ def get_voter_info(soup):
 
 
 def get_votes(soup):
-	"""Gets info votes for polit. parties, takes soup as argument."""
+	"""Gets info about votes for polit. parties, takes soup as argument."""
 
-	votes_info = []
+	td_header = ["t1sa2 t1sb3", "t2sa2 t2sb3"]
 
-	party_votes_1 = soup.find_all("td", {"class":"cislo", "headers":"t1sa2 t1sb3"})
-	for votes_1 in party_votes_1:
-		votes_info.append(votes_1.contents[0])
+	party_votes = soup.find_all("td", {"class":"cislo", "headers":td_header})
 
-	party_votes_2 = soup.find_all("td", {"class":"cislo", "headers":"t2sa2 t2sb3"})
-	for votes_2 in party_votes_2:
-		votes_info.append(votes_2.contents[0])
+	party_votes_list = [votes.contents[0] for votes in party_votes]	
 
-	return votes_info
+	return party_votes_list
 
 
-def process_links(generated_link):
+def process_links(base_link, generated_link, codes, names):
 	"""Scrapes and parses generated links.
-	Takes the list of generated links as argument."""
+	Takes the base link and base_link_ops function returns as arguments."""
 
-	# In this list assemble the final table of data and header.
+	# In this list we assemble the final table of data and header.
 	final_table = []
 
 	for loop, link in enumerate(generated_link):	
 
-		request = requests.get(link)
-		soup = BS(request.text, "html.parser")
-
-		# I assign return of function get_name to variable to avoid calling it twice.
-		municip_name = get_name(soup)
-		print("Scraping municipality: {}".format(municip_name))
+		response = requests.get(link)
+		soup = BS(response.text, "html.parser")
+ 
+		print("Scraping municipality: {}".format(names[loop]))
 
 		row = []
 
@@ -135,18 +137,14 @@ def process_links(generated_link):
 		if loop == 0:
 			final_table.append(create_header(soup))
 
-		# Function calls other functions to assemble the row.
-		row.append(get_code(link))
-		row.append(municip_name)
+		row.append(codes[loop])
+		row.append(names[loop])
 
-		# Here we have lists as function returns, so we have to unpack them.
-		for voter_data in get_voter_info(soup):
-			row.append(voter_data)
+		voter_info_list = [voter_info for voter_info in get_voter_info(soup)]
 
-		for votes_data in get_votes(soup):
-			row.append(votes_data)
+		votes_data_list = [votes_data for votes_data in get_votes(soup)]
 
-		final_table.append(row)
+		final_table.append(row + voter_info_list + votes_data_list)
 
 	return final_table
 
@@ -191,8 +189,14 @@ def main():
 			print("Invalid action. Enter only Y or N.")
 			continue
 
-	links = generate_links(base_link)
-	proc_links = process_links(links)
+	ops_return = base_link_ops(base_link)
+
+	proc_links = process_links(base_link, 
+							   ops_return[0], 
+							   ops_return[1], 
+							   ops_return[2]
+							   )
+
 	record_data(proc_links, file_name)
 
 	print("="*66)
